@@ -1,5 +1,5 @@
 import requests
-from datetime import date, timedelta
+from datetime import datetime, timedelta, date
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import logging
@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 # Set all CORS enabled origins
 origins = [
     "http://localhost:5173",
-    "https://flights.andreo.dev"
+    "https://flights.andreo.dev",
+    "https://api-gateway.umami.dev/api/send"
 ]
 
 app.add_middleware(
@@ -37,8 +38,19 @@ week_after_tomorrow = tomorrow + timedelta(days=7)
 tomorrow_dmy = tomorrow.strftime('%d-%m-%Y')
 week_after_tomorrow_dmy = week_after_tomorrow.strftime('%d-%m-%Y')
 
-def get_flight_data():
+# Cache for flight data
+flight_data_cache = {
+    "data": None,
+    "timestamp": None
+}
+CACHE_DURATION = timedelta(hours=1)
 
+def get_flight_data():
+    # Check if the cache is valid
+    if flight_data_cache["data"] and flight_data_cache["timestamp"]:
+        if datetime.now() - flight_data_cache["timestamp"] < CACHE_DURATION:
+            logger.info("Returning cached flight data")
+            return flight_data_cache["data"]
 
     url = "https://skyscanner80.p.rapidapi.com/api/v1/flights/search-everywhere"
 
@@ -63,7 +75,13 @@ def get_flight_data():
         logger.error(f"Failed to fetch flight data: {response.status_code}, {response.text}")
         raise HTTPException(status_code=response.status_code, detail="Failed to fetch flight data")
 
-    return response.json()
+    flight_data = response.json()
+
+    # Update the cache
+    flight_data_cache["data"] = flight_data
+    flight_data_cache["timestamp"] = datetime.now()
+
+    return flight_data
 
 @app.get("/flights")
 def read_flight_data():
@@ -75,4 +93,3 @@ def read_flight_data():
     except Exception as e:
         logger.error(f"An error occurred: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
-
